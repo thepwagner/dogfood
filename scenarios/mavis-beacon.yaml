@@ -1,0 +1,21 @@
+name: Basic features
+tags:
+  host: test.test.com
+phases:
+  - tags:
+      method:
+        weights:
+          GET: 100
+          POST: 10
+          DELETE: 1
+    metrics:
+      - name: http.request
+        count: 1
+      - name: http.response
+        count: 1
+        tags:
+          status:
+            weights:
+              "200": 7
+              "404": 2
+              "500": 1

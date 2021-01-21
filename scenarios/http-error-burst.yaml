@@ -31,9 +31,7 @@ phases:
           max: 500ms
   - name: error spike
     duration: 1m
-    delay:
-      min: 100ms
-      max: 200ms
+    delay: 50ms
     tags:
       method:
         weights:

@@ -56,7 +56,7 @@ phaseLoop:
 		delayFunc := phase.Delay()
 		delay := time.Duration(0)
 		for {
-			if time.Now().After(phaseEnd) {
+			if duration > 0 && time.Now().After(phaseEnd) {
 				continue phaseLoop
 			}
 
