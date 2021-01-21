@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/thepwagner/dogfood/dogfood"
@@ -13,24 +15,10 @@ import (
 )
 
 func main() {
-	logrus.SetLevel(logrus.DebugLevel)
+	//logrus.SetLevel(logrus.DebugLevel)
 
-	if err := run(); err != nil {
-		logrus.WithError(err).Fatal("failed")
-	}
-}
-
-func run() error {
-	c, err := statsd.New(statsd.TagsFormat(statsd.Datadog))
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	exec := dogfood.NewExecutor(c)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	sigC := make(chan os.Signal, 1)
 	signal.Notify(sigC, os.Interrupt)
 	go func() {
@@ -39,11 +27,33 @@ func run() error {
 		}
 	}()
 
-	exec.Start(ctx,
-		scenarios.HttpTraffic,
-		dogfood.WithDelayFunc(dogfood.RandomDelay(200*time.Millisecond, 300*time.Millisecond)),
-		dogfood.WithConcurrency(5),
-	)
-	_ = exec.Wait(ctx)
-	return nil
+	if err := run(ctx, os.Args...); err != nil && ctx.Err() == nil {
+		logrus.WithError(err).Fatal("failed")
+	}
+}
+
+func run(ctx context.Context, args ...string) error {
+	if len(args) != 2 {
+		return errors.New("specify scenario path")
+	}
+
+	scenario, err := readScenario(args[1])
+	if err != nil {
+		return err
+	}
+
+	c, err := statsd.New(statsd.TagsFormat(statsd.Datadog))
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return dogfood.NewExecutor(c).Run(ctx, scenario)
+}
+
+func readScenario(path string) (dogfood.Scenario, error) {
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading script: %w", err)
+	}
+	return scenarios.LoadScenario(b)
 }

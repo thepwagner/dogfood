@@ -2,7 +2,6 @@ package dogfood
 
 import (
 	"context"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -12,89 +11,73 @@ import (
 
 type Executor struct {
 	statsd *statsd.Client
-	wg     sync.WaitGroup
 }
 
 func NewExecutor(c *statsd.Client) *Executor {
 	return &Executor{statsd: c}
 }
 
-type DelayFunc func() time.Duration
-
-func FixedDelay(dur time.Duration) DelayFunc {
-	return func() time.Duration { return dur }
+func (e *Executor) Run(ctx context.Context, s Scenario) error {
+	var wg sync.WaitGroup
+	for i := 0; i < s.Concurrency(); i++ {
+		wg.Add(1)
+		go e.executeScenario(ctx, &wg, s, i)
+	}
+	return wait(ctx, &wg)
 }
 
-func RandomDelay(min, max time.Duration) DelayFunc {
-	r := int64(max - min)
-	return func() time.Duration {
-		return time.Duration(rand.Int63n(r)) + min
-	}
-}
+func (e *Executor) executeScenario(ctx context.Context, wg *sync.WaitGroup, s Scenario, id int) {
+	defer wg.Done()
 
-type startScenarioOptions struct {
-	concurrency int
-	delay       DelayFunc
-}
-
-type StartScenarioOpt func(o *startScenarioOptions)
-
-func WithDelayFunc(f DelayFunc) StartScenarioOpt {
-	return func(o *startScenarioOptions) {
-		o.delay = f
-	}
-}
-
-func WithConcurrency(concurrency int) StartScenarioOpt {
-	return func(o *startScenarioOptions) {
-		o.concurrency = concurrency
-	}
-}
-
-func (e *Executor) Start(ctx context.Context, s Scenario, opts ...StartScenarioOpt) {
-	o := &startScenarioOptions{
-		delay:       FixedDelay(1 * time.Second),
-		concurrency: 1,
-	}
-	for _, opt := range opts {
-		opt(o)
-	}
-	for i := 0; i < o.concurrency; i++ {
-		e.wg.Add(1)
-		go e.executorLoop(ctx, s, i, o.delay)
-	}
-}
-
-func (e *Executor) executorLoop(ctx context.Context, s Scenario, id int, dur DelayFunc) {
-	defer e.wg.Done()
-
-	log := logrus.WithFields(logrus.Fields{
+	phases := s.Phases()
+	log := logrus.WithField("id", id)
+	log.WithFields(logrus.Fields{
 		"scenario": s.Name(),
-		"id":       id,
-	})
-	log.Debug("starting scenario...")
+		"phases":   len(phases),
+	}).Info("starting scenario...")
 	defer func() {
 		log.Debug("scenario complete")
 	}()
 
-	tags := s.Tags()
-	log.WithField("tags", tags).Debug("computed scenario tags")
-	client := taggedClient(e.statsd, tags)
+	scenarioTags := s.Tags()
+	log.WithField("tags", scenarioTags).Debug("computed scenario tags")
+	scenarioClient := taggedClient(e.statsd, scenarioTags)
 
-	delay := time.Duration(0)
-	for {
-		if err := delayedExecute(ctx, log, s, client, delay); err != nil {
-			if ctx.Err() == nil {
-				log.WithError(err).Error("scenario terminated")
+phaseLoop:
+	for _, phase := range phases {
+		duration := phase.Duration()
+		log.WithFields(logrus.Fields{
+			"phase": phase.Name(),
+			"dur":   duration,
+		}).Info("starting phase...")
+
+		phaseEnd := time.Now().Add(duration)
+
+		delayFunc := phase.Delay()
+		delay := time.Duration(0)
+		for {
+			if time.Now().After(phaseEnd) {
+				continue phaseLoop
 			}
-			return
+
+			phaseTags := phase.Tags()
+			log.WithField("tags", phaseTags).Debug("computed phase tags")
+			phaseClient := taggedClient(scenarioClient, phaseTags)
+
+			// TODO: gate on phase duration
+			if err := executePhaseLoop(ctx, log, phase, phaseClient, delay); err != nil {
+				if ctx.Err() == nil {
+					log.WithError(err).Error("scenario terminated")
+				}
+				return
+			}
+			delay = delayFunc()
+			log.WithField("delay", delay.Truncate(time.Millisecond)).Debug("processed phase loop")
 		}
-		delay = dur()
-		log.WithField("delay", delay.Truncate(time.Millisecond)).Info("processed scenario")
 	}
 }
 
-func delayedExecute(ctx context.Context, log logrus.FieldLogger, s Scenario, client *statsd.Client, delay time.Duration) error {
+func executePhaseLoop(ctx context.Context, log logrus.FieldLogger, sp ScenarioPhase, client *statsd.Client, delay time.Duration) error {
 	t := time.NewTimer(delay)
 	defer t.Stop()
 
@@ -102,7 +85,7 @@ func delayedExecute(ctx context.Context, log logrus.FieldLogger, s Scenario, cli
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-t.C:
-		for i, m := range s.Metrics() {
+		for i, m := range sp.Metrics() {
 			metricLog := log.WithFields(logrus.Fields{
 				"metric_index": i,
 				"metric":       m.Name(),
@@ -131,10 +114,10 @@ func taggedClient(client *statsd.Client, tags Tags) *statsd.Client {
 	return client.Clone(statsd.Tags(flat...))
 }
 
-func (e *Executor) Wait(ctx context.Context) error {
+func wait(ctx context.Context, wg *sync.WaitGroup) error {
 	c := make(chan struct{})
 	go func() {
-		e.wg.Wait()
+		wg.Wait()
 		close(c)
 	}()
 	select {

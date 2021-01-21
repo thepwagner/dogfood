@@ -1,12 +1,12 @@
 package dogfood
 
 import (
-	"math/rand"
+	"time"
 
 	"gopkg.in/alexcesaro/statsd.v2"
 )
 
-func NewTimingMetric(name string, value func() int, opts ...MetricOpt) Metric {
+func NewTimingMetric(name string, value TimeFunc, opts ...MetricOpt) Metric {
 	m := &timingMetric{
 		metric: metric{name: name},
 		value:  value,
@@ -19,16 +19,10 @@ func NewTimingMetric(name string, value func() int, opts ...MetricOpt) Metric {
 
 type timingMetric struct {
 	metric
-	value func() int
+	value func() time.Duration
 }
 
 func (m *timingMetric) apply(c *statsd.Client) {
 	value := m.value()
-	c.Timing(m.name, value)
-}
-
-func NewRandomTiming(min, max int) func() int {
-	return func() int {
-		return rand.Intn(max-min) + min
-	}
+	c.Timing(m.name, int64(value/time.Millisecond))
 }

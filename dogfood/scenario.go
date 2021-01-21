@@ -2,7 +2,8 @@ package dogfood
 
 type Scenario interface {
 	Name() string
-	Metrics() []Metric
+	Concurrency() int
+	Phases() []ScenarioPhase
 	HasTags
 }
 
@@ -10,12 +11,25 @@ type ScenarioOpt func(s *scenario)
 
 func NewScenario(name string, opts ...ScenarioOpt) Scenario {
 	s := &scenario{
-		name: name,
+		name:        name,
+		concurrency: 1,
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
+}
+
+func WithConcurrency(concurrency int) ScenarioOpt {
+	return func(s *scenario) {
+		s.concurrency = concurrency
+	}
+}
+
+func WithPhases(phases ...ScenarioPhase) ScenarioOpt {
+	return func(s *scenario) {
+		s.phases = append(s.phases, phases...)
+	}
 }
 
 func WithScenarioTags(tags HasTags) ScenarioOpt {
@@ -24,24 +38,19 @@ func WithScenarioTags(tags HasTags) ScenarioOpt {
 	}
 }
 
-func WithMetric(metric Metric) ScenarioOpt {
-	return func(s *scenario) {
-		s.metrics = append(s.metrics, metric)
-	}
-}
-
-func WithMetrics(metrics ...Metric) ScenarioOpt {
-	return func(s *scenario) {
-		s.metrics = append(s.metrics, metrics...)
-	}
-}
-
 type scenario struct {
-	name    string
-	metrics []Metric
-	tags    HasTags
+	name        string
+	concurrency int
+	phases      []ScenarioPhase
+	tags        HasTags
 }
 
-func (s *scenario) Name() string      { return s.name }
-func (s *scenario) Metrics() []Metric { return s.metrics }
-func (s *scenario) Tags() Tags        { return s.tags.Tags() }
+func (s *scenario) Name() string            { return s.name }
+func (s *scenario) Concurrency() int        { return s.concurrency }
+func (s *scenario) Phases() []ScenarioPhase { return s.phases }
+func (s *scenario) Tags() Tags {
+	if s.tags != nil {
+		return s.tags.Tags()
+	}
+	return nil
+}
