@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"os/signal"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,6 +30,14 @@ func run() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	sigC := make(chan os.Signal, 1)
+	signal.Notify(sigC, os.Interrupt)
+	go func() {
+		for range sigC {
+			cancel()
+		}
+	}()
 
 	exec.Start(ctx,
 		scenarios.HttpTraffic,
