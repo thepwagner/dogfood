@@ -19,6 +19,7 @@ type phaseFile struct {
 	Name     string                 `yaml:"name"`
 	Duration string                 `yaml:"duration"`
 	Tags     map[string]interface{} `yaml:"tags"`
+	Delay    interface{}            `yaml:"delay"`
 	Metrics  []metricFile           `yaml:"metrics"`
 }
 
@@ -112,11 +113,42 @@ func LoadScenario(b []byte) (dogfood.Scenario, error) {
 		}
 		phaseOpts = append(phaseOpts, dogfood.WithMetrics(phaseMetrics...))
 
+		if phase.Delay != nil {
+			switch v := phase.Delay.(type) {
+			case string:
+				delay, err := time.ParseDuration(v)
+				if err != nil {
+					return nil, err
+				}
+				phaseOpts = append(phaseOpts, dogfood.WithDelayFunc(dogfood.FixedTiming(delay)))
+			case map[string]interface{}:
+				delayMin, err := parseDurationKey(v, "min")
+				if err != nil {
+					return nil, err
+				}
+				delayMax, err := parseDurationKey(v, "max")
+				if err != nil {
+					return nil, err
+				}
+				phaseOpts = append(phaseOpts, dogfood.WithDelayFunc(dogfood.RandomTiming(delayMin, delayMax)))
+			default:
+				return nil, fmt.Errorf("invalid delay %T: %q", phase.Delay, phaseName)
+			}
+		}
+
 		phases = append(phases, dogfood.NewScenarioPhase(phaseName, phaseOpts...))
 	}
 	opts = append(opts, dogfood.WithPhases(phases...))
 
 	return dogfood.NewScenario(name, opts...), nil
+}
+
+func parseDurationKey(d map[string]interface{}, key string) (time.Duration, error) {
+	v, ok := d[key].(string)
+	if !ok {
+		return 0, fmt.Errorf("invalid duration")
+	}
+	return time.ParseDuration(v)
 }
 
 func loadTags(t map[string]interface{}) (dogfood.HasTags, error) {

@@ -1,49 +1,76 @@
 name: HTTP error burst
-concurrency: 10
+concurrency: 50
 tags:
   host: test.test.com
 phases:
-- name: initially healthy
-  duration: 30s
-  tags:
-    method:
-      weights:
-        GET: 100
-        POST: 10
-        DELETE: 1
-  metrics:
-    - name: http.request
-      count: 1
-    - name: http.response
-      count: 1
-      tags:
-        status:
-          weights:
-            "200": 7
-            "404": 2
-            "500": 1
-    - name: http.duration
-      timing:
-        min: 200ms
-        max: 500ms
-- name: error spike
-  duration: 2m
-  tags:
-    method:
-      weights:
-        GET: 100
-        POST: 10
-        DELETE: 1
-  metrics:
-    - name: http.request
-      count: 1
-    - name: http.response
-      count: 1
-      tags:
-        status:
-          weights:
-            "500": 1
-    - name: http.duration
-      timing:
-        min: 10ms
-        max: 20ms
+  - name: initially healthy
+    duration: 30s
+    delay:
+      min: 1s
+      max: 2s
+    tags:
+      method:
+        weights:
+          GET: 100
+          POST: 10
+          DELETE: 1
+    metrics:
+      - name: http.request
+        count: 1
+      - name: http.response
+        count: 1
+        tags:
+          status:
+            weights:
+              "200": 7
+              "404": 2
+              "500": 1
+      - name: http.duration
+        timing:
+          min: 200ms
+          max: 500ms
+  - name: error spike
+    duration: 1m
+    delay:
+      min: 100ms
+      max: 200ms
+    tags:
+      method:
+        weights:
+          POST: 1
+    metrics:
+      - name: http.request
+        count: 1
+      - name: http.response
+        count: 1
+        tags:
+          status:
+            weights:
+              "500": 1
+      - name: http.duration
+        timing:
+          min: 10ms
+          max: 20ms
+  - name: restored healthy
+    duration: 30s
+    delay:
+      min: 1s
+      max: 2s
+    tags:
+      method:
+        weights:
+          GET: 100
+          POST: 1
+    metrics:
+      - name: http.request
+        count: 1
+      - name: http.response
+        count: 1
+        tags:
+          status:
+            weights:
+              "200": 1
+      - name: http.duration
+        timing:
+          min: 200ms
+          max: 300ms
