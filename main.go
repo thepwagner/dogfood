@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
+	"time"
+
 	"github.com/sirupsen/logrus"
+	"github.com/thepwagner/dogfood/dogfood"
+	"github.com/thepwagner/dogfood/scenarios"
 	"gopkg.in/alexcesaro/statsd.v2"
 )
 
 func main() {
+	logrus.SetLevel(logrus.DebugLevel)
+
 	if err := run(); err != nil {
 		logrus.WithError(err).Fatal("failed")
 	}
@@ -17,16 +24,16 @@ func run() error {
 		return err
 	}
 	defer c.Close()
+	exec := dogfood.NewExecutor(c)
 
-	func() {
-		tagged := c.Clone(statsd.Tags("foo", "1", "bar", "1"))
-		tagged.Increment("pwagner.test")
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	func() {
-		tagged := c.Clone(statsd.Tags("foo", "2", "bar", "1"))
-		tagged.Increment("pwagner.test")
-	}()
-
+	exec.Start(ctx,
+		scenarios.HttpTraffic,
+		dogfood.WithDelayFunc(dogfood.RandomDelay(200*time.Millisecond, 300*time.Millisecond)),
+		dogfood.WithConcurrency(5),
+	)
+	_ = exec.Wait(ctx)
 	return nil
 }
