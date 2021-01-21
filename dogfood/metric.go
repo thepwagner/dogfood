@@ -9,45 +9,32 @@ type Metric interface {
 	apply(client *statsd.Client)
 }
 
-type MetricOpt func(s *countMetric)
-
-func NewCountMetric(name string, opts ...MetricOpt) Metric {
-	m := &countMetric{
-		name:  name,
-		count: 1,
-	}
-	for _, o := range opts {
-		o(m)
-	}
-	return m
-}
+type MetricOpt func(s Metric)
 
 func WithTags(tags HasTags) MetricOpt {
-	return func(m *countMetric) {
-		m.tags = tags
+	return func(m Metric) {
+		if m, ok := m.(setTags); ok {
+			m.setTags(tags)
+		}
 	}
 }
 
-func WithCount(count int) MetricOpt {
-	return func(m *countMetric) {
-		m.count = count
-	}
+type metric struct {
+	name string
+	tags HasTags
 }
 
-type countMetric struct {
-	name  string
-	count int
-	tags  HasTags
-}
-
-func (m *countMetric) Name() string { return m.name }
-func (m *countMetric) Tags() Tags {
+func (m *metric) Name() string         { return m.name }
+func (m *metric) apply(*statsd.Client) {}
+func (m *metric) Tags() Tags {
 	if m.tags != nil {
 		return m.tags.Tags()
 	}
 	return nil
 }
 
-func (m *countMetric) apply(c *statsd.Client) {
-	c.Count(m.name, m.count)
+type setTags interface{ setTags(t HasTags) }
+
+func (m *metric) setTags(t HasTags) {
+	m.tags = t
 }

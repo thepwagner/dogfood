@@ -16,8 +16,8 @@ func TestExecute(t *testing.T) {
 		ForceColors: true,
 	})
 
+	// Simulate an HTTP request every second:
 	s := dogfood.NewScenario(
-		// Simulate an HTTP request every second:
 		"http test",
 		1.*time.Second,
 		// Common tags for every metric:
@@ -33,13 +33,16 @@ func TestExecute(t *testing.T) {
 			),
 		),
 		dogfood.WithMetrics(
+			// Count the request:
 			dogfood.NewCountMetric("http.request"),
+			// Count the response:
 			dogfood.NewCountMetric("http.response", dogfood.WithTags(
 				dogfood.NewWeightedTag("status", map[string]int{
 					"200": 9,
 					"500": 1,
 				})),
 			),
+			dogfood.NewTimingMetric("http.duration", dogfood.NewRandomTiming(200, 500)),
 		),
 	)
 
@@ -51,6 +54,6 @@ func TestExecute(t *testing.T) {
 	for {
 		err := e.Execute(s)
 		require.NoError(t, err)
-		time.Sleep(1 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 }
